@@ -36,6 +36,13 @@ import java.util.Set;
  */
 public class MapperService extends AccessibilityService implements SharedPreferences.OnSharedPreferenceChangeListener {
     private static final int SEGMENT_MS = 95;
+    public static final String DIAG_NONCE = "touchbridge_test_nonce";
+    public static final String DIAG_X = "touchbridge_test_x";
+    public static final String DIAG_Y = "touchbridge_test_y";
+    public static final String DIAG_RESULT = "touchbridge_test_result";
+    public static final String SHOW_DIAG = "touchbridge_show_diagnostics";
+    private static volatile boolean connected = false;
+    public static boolean isConnected() { return connected; }
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
     private String foregroundPackage = "";
@@ -49,12 +56,17 @@ public class MapperService extends AccessibilityService implements SharedPrefere
     private WindowManager windowManager;
     private View selectionOverlay;
     private View cursorOverlay;
+    private TextView diagnosticsOverlay;
+    private int keyCount = 0;
+    private int gestureCount = 0;
+    private int gestureErrors = 0;
     private WindowManager.LayoutParams cursorParams;
     private float cursorX = -1, cursorY = -1;
     private boolean leftMouse = false, rightMouse = false, middleMouse = false;
 
     @Override protected void onServiceConnected() {
         super.onServiceConnected();
+        connected = true;
         prefs = MappingStore.prefs(this);
         prefs.registerOnSharedPreferenceChangeListener(this);
         windowManager = (WindowManager)getSystemService(WINDOW_SERVICE);
@@ -80,13 +92,54 @@ public class MapperService extends AccessibilityService implements SharedPrefere
 
     @Override public void onDestroy() {
         if (prefs != null) prefs.unregisterOnSharedPreferenceChangeListener(this);
-        hideSelection(); hideCursor();
+        connected = false;
+        hideSelection(); hideCursor(); hideDiagnostics();
         handler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
     @Override public void onSharedPreferenceChanged(SharedPreferences p, String key) {
-        handler.post(this::reconfigure);
+        if (DIAG_NONCE.equals(key)) {
+            handler.post(this::sendDiagnosticTap);
+        } else if (!DIAG_RESULT.equals(key) && !DIAG_X.equals(key) && !DIAG_Y.equals(key)) {
+            handler.post(this::reconfigure);
+        }
+    }
+
+    /**
+     * One actual system-generated touch. The diagnostic screen measures whether its
+     * target VIEW receives this tap; an "onCompleted" callback alone is not proof.
+     */
+    private void sendDiagnosticTap() {
+        if (prefs == null) return;
+        float x = prefs.getFloat(DIAG_X, -1);
+        float y = prefs.getFloat(DIAG_Y, -1);
+        Point screen = displaySize();
+        if (x < 0 || y < 0 || x >= screen.x || y >= screen.y) {
+            prefs.edit().putString(DIAG_RESULT, "Ungültige Bildschirmposition").apply();
+            return;
+        }
+        try {
+            Path path = new Path();
+            path.moveTo(x, y);
+            GestureDescription gesture = new GestureDescription.Builder()
+                .addStroke(new GestureDescription.StrokeDescription(path, 0, 90))
+                .build();
+            boolean accepted = dispatchGesture(gesture, new GestureResultCallback() {
+                @Override public void onCompleted(GestureDescription g) {
+                    prefs.edit().putString(DIAG_RESULT, "Geste an Android gesendet").apply();
+                }
+                @Override public void onCancelled(GestureDescription g) {
+                    prefs.edit().putString(DIAG_RESULT, "Geste von Android abgebrochen").apply();
+                }
+            }, handler);
+            if (!accepted) {
+                prefs.edit().putString(DIAG_RESULT, "Android hat dispatchGesture abgelehnt").apply();
+            }
+        } catch (Exception error) {
+            prefs.edit().putString(DIAG_RESULT,
+                "Fehler: " + error.getClass().getSimpleName()).apply();
+        }
     }
 
     private boolean isTargetForeground() {
@@ -126,6 +179,9 @@ public class MapperService extends AccessibilityService implements SharedPrefere
             }
         } else showCursor();
         if (running) rebuildWanted();
+        if (prefs.getBoolean(SHOW_DIAG, false) && isTargetForeground()) showDiagnostics();
+        else hideDiagnostics();
+        updateDiagnostics();
     }
 
     private void stopTouches() {
@@ -147,6 +203,10 @@ public class MapperService extends AccessibilityService implements SharedPrefere
             }
         }
         if (!mapped) return false;
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            keyCount++;
+            updateDiagnostics();
+        }
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             if (event.getRepeatCount() == 0 && heldKeys.add(code)) rebuildWanted();
         } else if (event.getAction() == KeyEvent.ACTION_UP) {
@@ -247,22 +307,30 @@ public class MapperService extends AccessibilityService implements SharedPrefere
             busy = true;
             boolean accepted = dispatchGesture(gesture.build(), new GestureResultCallback() {
                 @Override public void onCompleted(GestureDescription g) {
+                    gestureCount++;
+                    updateDiagnostics();
                     busy = false;
                     continued = nextStrokes;
                     lastPositions = nextPositions;
                     if (!continued.isEmpty() || !wanted.isEmpty()) handler.post(MapperService.this::sendFrame);
                 }
                 @Override public void onCancelled(GestureDescription g) {
+                    gestureErrors++;
+                    updateDiagnostics();
                     busy = false;
                     continued.clear(); lastPositions.clear();
                     if (!wanted.isEmpty()) handler.postDelayed(MapperService.this::sendFrame, 70);
                 }
             }, handler);
             if (!accepted) {
+                gestureErrors++;
+                updateDiagnostics();
                 busy = false;
                 continued.clear(); lastPositions.clear();
             }
         } catch (Exception ex) {
+            gestureErrors++;
+            updateDiagnostics();
             busy = false;
             continued.clear(); lastPositions.clear();
         }
@@ -356,6 +424,44 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         if (selectionOverlay == null || windowManager == null) return;
         try { windowManager.removeView(selectionOverlay); } catch (Exception ignored) {}
         selectionOverlay = null;
+    }
+
+    /** Noninteractive on-screen diagnostic (only over the selected target app). */
+    private void showDiagnostics() {
+        if (diagnosticsOverlay != null || windowManager == null) return;
+        TextView view = new TextView(this);
+        view.setTextSize(13);
+        view.setTextColor(Color.WHITE);
+        view.setBackgroundColor(0xD91B354A);
+        view.setPadding(18, 14, 18, 14);
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+            -2, -2, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE |
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            android.graphics.PixelFormat.TRANSLUCENT);
+        params.gravity = Gravity.TOP | Gravity.LEFT;
+        params.x = 12;
+        params.y = 85;
+        try {
+            windowManager.addView(view, params);
+            diagnosticsOverlay = view;
+        } catch (Exception ignored) { diagnosticsOverlay = null; }
+    }
+
+    private void updateDiagnostics() {
+        if (diagnosticsOverlay == null) return;
+        diagnosticsOverlay.setText("TOUCHBRIDGE · Ziel-App erkannt\n" +
+            "Mapping: " + (running ? "AN" : "AUS") +
+            " | Tasten: " + keyCount +
+            " | Gesten: " + gestureCount +
+            " | Fehler: " + gestureErrors);
+    }
+
+    private void hideDiagnostics() {
+        if (diagnosticsOverlay == null || windowManager == null) return;
+        try { windowManager.removeView(diagnosticsOverlay); } catch (Exception ignored) {}
+        diagnosticsOverlay = null;
     }
 
     private void showCursor() {

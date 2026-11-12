@@ -118,6 +118,15 @@ public class MainActivity extends Activity {
             MappingStore.prefs(this).edit().putBoolean(MappingStore.MOUSE, checked).apply());
         body.addView(mouse);
         body.addView(label("Die Mauserkennung wird nur in deiner Ziel-App abgefangen. Linksklick wird an der Cursorposition simuliert; Rechts-/Mittelklick an festen Punkten. Mausbewegung als 3D-Kamera ist hier noch nicht implementiert.", 12, MUTED, false));
+        Switch diagnosis = new Switch(this);
+        diagnosis.setText("Diagnoseanzeige im Spiel (optional)");
+        diagnosis.setTextColor(TEXT);
+        diagnosis.setTextSize(16);
+        diagnosis.setChecked(MappingStore.prefs(this).getBoolean(MapperService.SHOW_DIAG, false));
+        diagnosis.setOnCheckedChangeListener((view, checked) ->
+            MappingStore.prefs(this).edit().putBoolean(MapperService.SHOW_DIAG, checked).apply());
+        body.addView(diagnosis);
+        body.addView(label("Blendet in der erkannten Ziel-App ein, ob das Mapping aktiv ist und ob Tastendrücke und Touch-Gesten beim Dienst ankommen. Keine Tasteninhalte werden gespeichert.", 12, MUTED, false));
         separator();
 
         body.addView(label("TEST-UMGEBUNG", 19, TEXT, true));
@@ -125,6 +134,10 @@ public class MainActivity extends Activity {
         Button test = button("🎮 Touch-Gesten live testen");
         test.setOnClickListener(v -> startActivity(new Intent(this, TestActivity.class)));
         body.addView(test);
+        Button actualTouchTest = button("🧪 Echte Android-Touch-Geste testen");
+        actualTouchTest.setOnClickListener(v -> startActivity(new Intent(this, DiagnosticActivity.class)));
+        body.addView(actualTouchTest);
+        body.addView(label("Dieser Test prüft unabhängig vom Spiel, ob die Bedienungshilfe tatsächlich einen Touch auslösen kann.", 12, MUTED, false));
         separator();
 
         body.addView(label("TOUCH-BELEGUNG", 19, TEXT, true));

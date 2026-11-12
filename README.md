@@ -1,8 +1,16 @@
 # TouchBridge — Android Keyboard/Mouse → Touch (prototype)
 
-**Version 0.2.0 (source code, not a prebuilt APK).**
+**Version 0.3.0 (source code, not a prebuilt APK).**
 
 TouchBridge maps a connected physical Bluetooth/USB keyboard and (on Android 14+) mouse to synthetic touchscreen gestures in one chosen Android game or app. It is designed for learning and local testing, not to evade anti-cheat rules. The app has **no INTERNET permission** and keeps its configuration only on the device.
+
+## Neu in v0.3: Fehlersuche direkt am Gerät
+
+- **🧪 Echte Android-Touch-Geste testen**: prüft durch einen echten `AccessibilityService.dispatchGesture()`-Aufruf, ob Android einen generierten Touch in der App ausliefert. Der Test funktioniert ohne Zielspiel und erfordert einen aktivierten Bedienungshilfedienst. Tippe auf **Echten Touch auslösen**, nicht auf die Zielscheibe. Erfolgreich ist der Test nur, wenn **„Geste an Android gesendet“** erscheint UND der Touch-Zähler steigt. Die bloße Erfolgsmeldung des API-Callbacks beweist noch nicht, dass das Ziel den Touch erhalten hat.
+- **Diagnoseanzeige im Spiel (optional)**: blendet in der gewählten Ziel-App Status (`Mapping AN/AUS`, Anzahl erkannter Mappings-Tastendrücke, abgeschlossene und abgebrochene Gesten) über das Bild. Nur Zähler, keine aufgezeichneten Tasten.
+- Der Diagnosebildschirm funktioniert bewusst unabhängig vom Ziel-App-Filter. Die Spielfunktion bleibt weiterhin auf die gewählte App begrenzt.
+
+**Troubleshooting**: Wenn der Diagnose-Touch erfolgreich ist, aber im Spiel keine Aktion stattfindet, Ziel-App, Mapping-Schalter und Bildschirmpositionen kontrollieren. Wenn die Diagnoseanzeige im Spiel fehlt, erkennt der Dienst möglicherweise die Ziel-App nicht oder das System blockiert Overlay-Darstellung. Wenn `Tasten: 0` stehen bleibt, erhält der Dienst keine Tasten (Dienst/Android-Tastenfilter prüfen). Wenn `Gesten` steigen, aber nichts passiert, kommen Simulation und/oder die gewählten Positionen nicht bei der Spielsteuerung an. Manche Spiele lehnen künstliche Eingaben ab.
 
 ## New in v0.2: Test laboratory / Gesten-Testlabor
 
@@ -87,6 +95,7 @@ Defaults are only examples, not tuned for any particular game. To change each ma
 
 - `app/src/main/java/de/touchbridge/app/MainActivity.java` — Settings/UI, app picker, mapping editor
 - `app/src/main/java/de/touchbridge/app/TestActivity.java` — Test lab with visual key/mouse/touch preview, no real gesture injection
+- `app/src/main/java/de/touchbridge/app/DiagnosticActivity.java` — actual AccessibilityService touch injection test
 - `app/src/main/java/de/touchbridge/app/MappingStore.java` — Local configuration and defaults
 - `app/src/main/java/de/touchbridge/app/MapperService.java` — Accessibility input capture + touch gesture engine + picker/cursor overlays
 - `.github/workflows/build-apk.yml` — Debug APK build pipeline

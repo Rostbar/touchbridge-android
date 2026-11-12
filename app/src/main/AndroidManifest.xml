@@ -19,6 +19,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".TestActivity" android:exported="false" />
+        <activity android:name=".DiagnosticActivity" android:exported="false" />
         <service
             android:name=".MapperService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
