@@ -1,3 +1,15 @@
+# TouchBridge v0.5 – Geometry Dash Tap-Fix
+
+**Neu: Kurze Taps statt Halten.** Aktiviere in TouchBridge den Schalter **„Kurze Taps statt Halten (z. B. Geometry Dash)“**. Jeder physische Tastendruck (z. B. SPACE) erzeugt dann einen einzigen **65-ms-Touch**, der **automatisch endet**, selbst wenn Android kein KEY_UP meldet. Die automatischen Wiederholungen beim Halten der Taste werden nicht als weitere Taps verarbeitet. WASD-Joystick und Maus bleiben weiterhin im bisherigen kontinuierlichen Modus.
+
+**So testest du Geometry Dash:** Ziel-App wählen → SPACE-Position im Spiel festlegen → Mapping aktivieren → Tap-Modus aktivieren → Geometry Dash starten. Bei einem einzelnen Druck auf SPACE sollte die Figur einmal springen; dauerhaftes Halten erzeugt keine Touch-Dauerschleife mehr. GD kann je nach Spielmodus Eingaben anders interpretieren. Die genaue Touch-Koordinate muss stimmen.
+
+**Hinweise zur Ursache:** Version 0.4 nutzte für belegte Tasten eine Folge von fortgesetzten 95-ms-Gesten (`continueStroke`), die erst nach KEY_UP beendet wurde. Wenn Android KEY_UP nicht an den Bedienungshilfedienst weiterleitete oder es verzögert ankam, blieb die Figur scheinbar dauerhaft gedrückt. V0.5 umgeht das für normale Tasten im Tap-Modus mit zeitlich begrenzten Touch-Gesten. Die normale Haltefunktion ist weiterhin vorhanden, damit Spiele mit Druck-und-Halten-Mechaniken funktionieren.
+
+**Build:** bestehenden GitHub Actions Workflow verwenden. Android-Bedienungshilfe muss aktiviert sein. Bei wechselnd signierten Debug-APKs kann eine Deinstallation (mit Datenverlust) erforderlich sein. Nicht auf Gerät getestet.
+
+---
+
 # TouchBridge — Android Keyboard/Mouse → Touch (prototype)
 
 **Version 0.4.0 (source code, not a prebuilt APK).**

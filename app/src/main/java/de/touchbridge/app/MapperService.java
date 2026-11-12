@@ -38,6 +38,8 @@ import java.util.Set;
  */
 public class MapperService extends AccessibilityService implements SharedPreferences.OnSharedPreferenceChangeListener {
     private static final int SEGMENT_MS = 95;
+    private static final int TAP_MS = 65;
+    public static final String TAP_MODE = "touchbridge_tap_mode";
     public static final String DIAG_NONCE = "touchbridge_test_nonce";
     public static final String DIAG_X = "touchbridge_test_x";
     public static final String DIAG_Y = "touchbridge_test_y";
@@ -50,10 +52,14 @@ public class MapperService extends AccessibilityService implements SharedPrefere
     private String foregroundPackage = "";
     private final Set<Integer> heldKeys = new HashSet<>();
     private final Map<String, PointF> wanted = new HashMap<>();
+    // One-shot taps: their StrokeDescription ends automatically after TAP_MS.
+    // They never require the keyboard ACTION_UP event to release the virtual finger.
+    private final Map<String, PointF> oneShotTouches = new HashMap<>();
     private Map<String, GestureDescription.StrokeDescription> continued = new HashMap<>();
     private Map<String, PointF> lastPositions = new HashMap<>();
     private boolean busy = false;
     private boolean running = false;
+    private boolean lastTapMode = false;
     private int hookedMouseSources = -1;
     private WindowManager windowManager;
     private View selectionOverlay;
@@ -193,6 +199,11 @@ public class MapperService extends AccessibilityService implements SharedPrefere
     private void reconfigure() {
         if (prefs == null) return;
         boolean shouldRun = prefs.getBoolean(MappingStore.ENABLED, false) && isTargetForeground();
+        boolean tapMode = prefs.getBoolean(TAP_MODE, false);
+        if (lastTapMode != tapMode) {
+            stopTouches();
+            lastTapMode = tapMode;
+        }
         if (running != shouldRun) {
             running = shouldRun;
             if (!running) stopTouches();
@@ -232,6 +243,7 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         heldKeys.clear();
         leftMouse = rightMouse = middleMouse = false;
         wanted.clear();
+        oneShotTouches.clear();
         scheduleFrame();
     }
 
@@ -252,14 +264,35 @@ public class MapperService extends AccessibilityService implements SharedPrefere
             keyCount++;
             updateDiagnostics();
         }
+        // Release an already tracked held key even if the foreground changed while pressed.
+        if (event.getAction() == KeyEvent.ACTION_UP && heldKeys.remove(code)) {
+            rebuildWanted();
+        }
         // Count but never consume a physical key outside the enabled target app.
         if (!running || selectionOverlay != null) return false;
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            if (event.getRepeatCount() == 0 && heldKeys.add(code)) rebuildWanted();
-        } else if (event.getAction() == KeyEvent.ACTION_UP) {
-            if (heldKeys.remove(code)) rebuildWanted();
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            if (prefs.getBoolean(TAP_MODE, false) && !isDirection(code)) {
+                enqueueShortTap(code);
+            } else if (heldKeys.add(code)) {
+                rebuildWanted();
+            }
         }
         return true;
+    }
+
+    /** GD-style button: a finite tap rather than a potentially endless chained hold. */
+    private void enqueueShortTap(int code) {
+        if (!running || selectionOverlay != null) return;
+        Point size = displaySize();
+        for (MappingStore.Binding binding : MappingStore.read(this)) {
+            if (MappingStore.STICK.equals(binding.key) || binding.key.startsWith("MOUSE_")) continue;
+            if (MappingStore.keyCode(binding.key) == code) {
+                oneShotTouches.put("TAP_" + code,
+                    new PointF(binding.x * size.x, binding.y * size.y));
+                scheduleFrame();
+                return;
+            }
+        }
     }
 
     private static boolean isDirection(int k) {
@@ -292,6 +325,7 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         }
         for (MappingStore.Binding b : MappingStore.read(this)) {
             if (MappingStore.STICK.equals(b.key) || b.key.startsWith("MOUSE_")) continue;
+            if (prefs.getBoolean(TAP_MODE, false)) continue; // Button taps run once on key DOWN.
             int keyCode = MappingStore.keyCode(b.key);
             if (keyCode != KeyEvent.KEYCODE_UNKNOWN && heldKeys.contains(keyCode)) {
                 wanted.put("KEY_" + keyCode, new PointF(b.x * size.x, b.y * size.y));
@@ -310,7 +344,7 @@ public class MapperService extends AccessibilityService implements SharedPrefere
     }
 
     private void sendFrame() {
-        if (busy || (continued.isEmpty() && wanted.isEmpty())) return;
+        if (busy || (continued.isEmpty() && wanted.isEmpty() && oneShotTouches.isEmpty())) return;
         // dispatchGesture allows at most 10 simultaneous pointer paths on normal devices.
         List<String> ids = new ArrayList<>(wanted.keySet());
         ids.sort(String::compareTo);
@@ -319,16 +353,27 @@ public class MapperService extends AccessibilityService implements SharedPrefere
             if (snapshot.size() < GestureDescription.getMaxStrokeCount())
                 snapshot.put(id, wanted.get(id));
         }
+        // Snapshot only the taps that fit; they are removed after dispatch is accepted.
+        Map<String, PointF> tapSnapshot = new HashMap<>();
+        int available = GestureDescription.getMaxStrokeCount() - snapshot.size();
+        for (String id : new ArrayList<>(oneShotTouches.keySet())) {
+            if (available <= 0) break;
+            tapSnapshot.put(id, oneShotTouches.get(id));
+            available--;
+        }
         GestureDescription.Builder gesture = new GestureDescription.Builder();
         Map<String, GestureDescription.StrokeDescription> nextStrokes = new HashMap<>();
         Map<String, PointF> nextPositions = new HashMap<>();
         Set<String> keys = new HashSet<>(continued.keySet());
         keys.addAll(snapshot.keySet());
+        keys.addAll(tapSnapshot.keySet());
         try {
             for (String id : keys) {
+                boolean tap = tapSnapshot.containsKey(id);
                 boolean staying = snapshot.containsKey(id);
                 PointF oldPosition = lastPositions.get(id);
-                PointF destination = staying ? snapshot.get(id) : oldPosition;
+                PointF destination = tap ? tapSnapshot.get(id)
+                    : staying ? snapshot.get(id) : oldPosition;
                 if (destination == null) continue;
                 Path path = new Path();
                 PointF start = oldPosition != null ? oldPosition : destination;
@@ -341,9 +386,11 @@ public class MapperService extends AccessibilityService implements SharedPrefere
                 if (Math.abs(start.x - destination.x) > .01f || Math.abs(start.y - destination.y) > .01f)
                     path.lineTo(destination.x, destination.y);
                 GestureDescription.StrokeDescription previous = continued.get(id);
+                int duration = tap ? TAP_MS : SEGMENT_MS;
+                // Tap stroke ends by itself, even if the system never reports KEY_UP.
                 GestureDescription.StrokeDescription stroke = previous == null
-                    ? new GestureDescription.StrokeDescription(path, 0, SEGMENT_MS, staying)
-                    : previous.continueStroke(path, 0, SEGMENT_MS, staying);
+                    ? new GestureDescription.StrokeDescription(path, 0, duration, staying)
+                    : previous.continueStroke(path, 0, duration, staying);
                 gesture.addStroke(stroke);
                 if (staying) {
                     nextStrokes.put(id, stroke);
@@ -359,27 +406,33 @@ public class MapperService extends AccessibilityService implements SharedPrefere
                     busy = false;
                     continued = nextStrokes;
                     lastPositions = nextPositions;
-                    if (!continued.isEmpty() || !wanted.isEmpty()) handler.post(MapperService.this::sendFrame);
+                    if (!continued.isEmpty() || !wanted.isEmpty() || !oneShotTouches.isEmpty())
+                        handler.post(MapperService.this::sendFrame);
                 }
                 @Override public void onCancelled(GestureDescription g) {
                     gestureErrors++;
                     updateDiagnostics();
                     busy = false;
                     continued.clear(); lastPositions.clear();
-                    if (!wanted.isEmpty()) handler.postDelayed(MapperService.this::sendFrame, 70);
+                    if (!wanted.isEmpty() || !oneShotTouches.isEmpty())
+                        handler.postDelayed(MapperService.this::sendFrame, 70);
                 }
             }, handler);
-            if (!accepted) {
+            if (accepted) {
+                for (String id : tapSnapshot.keySet()) oneShotTouches.remove(id);
+            } else {
                 gestureErrors++;
                 updateDiagnostics();
                 busy = false;
                 continued.clear(); lastPositions.clear();
+                oneShotTouches.clear();
             }
         } catch (Exception ex) {
             gestureErrors++;
             updateDiagnostics();
             busy = false;
             continued.clear(); lastPositions.clear();
+            oneShotTouches.clear();
         }
     }
 
@@ -500,9 +553,10 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         if (diagnosticsOverlay == null) return;
         String target = prefs == null ? "" : prefs.getString(MappingStore.TARGET, "");
         boolean detected = isTargetForeground();
-        diagnosticsOverlay.setText("TOUCHBRIDGE v0.4 · Service aktiv\n" +
+        diagnosticsOverlay.setText("TOUCHBRIDGE v0.5 · Service aktiv\n" +
             "Ziel erkannt: " + (detected ? "JA" : "NEIN") +
-            " | Mapping: " + (running ? "AN" : "AUS") + "\n" +
+            " | Mapping: " + (running ? "AN" : "AUS") +
+            " | " + (prefs.getBoolean(TAP_MODE, false) ? "TAP" : "HALTEN") + "\n" +
             "Aktives Paket: " + (foregroundPackage.isEmpty() ? "unbekannt" : foregroundPackage) + "\n" +
             "Zielpaket: " + (target == null || target.isEmpty() ? "nicht gewählt" : target) + "\n" +
             "Tasten: " + keyCount +

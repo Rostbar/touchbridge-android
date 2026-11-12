@@ -117,6 +117,20 @@ public class MainActivity extends Activity {
         mouse.setOnCheckedChangeListener((view, checked) ->
             MappingStore.prefs(this).edit().putBoolean(MappingStore.MOUSE, checked).apply());
         body.addView(mouse);
+
+        Switch tap = new Switch(this);
+        tap.setText("Kurze Taps statt Halten (z. B. Geometry Dash)");
+        tap.setTextColor(TEXT);
+        tap.setTextSize(16);
+        tap.setPadding(0, dp(8), 0, dp(8));
+        tap.setChecked(MappingStore.prefs(this).getBoolean(MapperService.TAP_MODE, false));
+        tap.setOnCheckedChangeListener((view, checked) ->
+            MappingStore.prefs(this).edit().putBoolean(MapperService.TAP_MODE, checked).apply());
+        body.addView(tap);
+        body.addView(label("Jeder Tastendruck erzeugt genau einen kurzen Touch (65 ms). " +
+            "Automatische Tastatur-Wiederholungen werden ignoriert. WASD-Joystick und Maus bleiben im Halten-Modus.",
+            12, MUTED, false));
+
         body.addView(label("Die Mauserkennung wird nur in deiner Ziel-App abgefangen. Linksklick wird an der Cursorposition simuliert; Rechts-/Mittelklick an festen Punkten. Mausbewegung als 3D-Kamera ist hier noch nicht implementiert.", 12, MUTED, false));
         Switch diagnosis = new Switch(this);
         diagnosis.setText("Diagnoseanzeige auf dem Bildschirm (optional)");
@@ -156,7 +170,7 @@ public class MainActivity extends Activity {
         body.addView(reset);
         separator();
         body.addView(label("Hinweise", 16, TEXT, true));
-        body.addView(label("• WASD simuliert einen kontinuierlichen virtuellen Joystick. Für andere Tasten wird ein gehaltenes Touch-Ereignis verwendet.\n• Keine Internet-Berechtigung, keine Protokollierung von Tastendrücken.\n• Manche Spiele ignorieren simulierte Gesten oder verbieten Mapping-Tools.\n• Falls Android die Bedienungshilfe blockiert: App-Info → Drei-Punkte-Menü → Eingeschränkte Einstellungen zulassen (nur wenn du dem eigenen APK vertraust).\n• Bei Problemen Mapping jederzeit deaktivieren.", 13, MUTED, false));
+        body.addView(label("• WASD simuliert einen kontinuierlichen virtuellen Joystick. Andere Tasten halten Touch, außer wenn der neue Tap-Modus aktiv ist.\n• Keine Internet-Berechtigung, keine Protokollierung von Tastendrücken.\n• Manche Spiele ignorieren simulierte Gesten oder verbieten Mapping-Tools.\n• Falls Android die Bedienungshilfe blockiert: App-Info → Drei-Punkte-Menü → Eingeschränkte Einstellungen zulassen (nur wenn du dem eigenen APK vertraust).\n• Bei Problemen Mapping jederzeit deaktivieren.", 13, MUTED, false));
     }
 
     private void addBinding(MappingStore.Binding b) {
