@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_description">Ordnet angeschlossene Tastatur- und Mauseingaben in einer explizit ausgewählten App Touch-Gesten zu. Keine Internetverbindung, keine Datenübertragung.</string>
+</resources>
