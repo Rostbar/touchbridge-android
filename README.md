@@ -1,8 +1,16 @@
 # TouchBridge — Android Keyboard/Mouse → Touch (prototype)
 
-**Version 0.3.0 (source code, not a prebuilt APK).**
+**Version 0.4.0 (source code, not a prebuilt APK).**
 
 TouchBridge maps a connected physical Bluetooth/USB keyboard and (on Android 14+) mouse to synthetic touchscreen gestures in one chosen Android game or app. It is designed for learning and local testing, not to evade anti-cheat rules. The app has **no INTERNET permission** and keeps its configuration only on the device.
+
+## Neu in v0.4: Spiel-Erkennung und aussagekräftigeres Debugging
+
+- Der AccessibilityService berücksichtigt jetzt auch `TYPE_WINDOWS_CHANGED` und versucht, das fokussierte Anwendungsfenster über `getWindows()` zu ermitteln (mit deklarierter `canRetrieveWindowContent`-Berechtigung). Diese Information wird nur zur Paketkennung verwendet, nicht zum Lesen von Textinhalten.
+- Das optionale Diagnose-Overlay wird **auch dann angezeigt, wenn die Ziel-App nicht erkannt wird**. Es zeigt *Ziel erkannt: JA/NEIN*, *Mapping AN/AUS*, Vordergrund-Paket sowie Zähler. Das Overlay bleibt bis zur Deaktivierung der Option über anderen Apps sichtbar.
+- Der Zähler für gemappte Tastendrücke läuft auch außerhalb der Ziel-App, sofern Android die Ereignisse an den Service liefert; die Tasten werden außerhalb der Ziel-App **nicht abgefangen**.
+- Nach Installation: Bedienungshilfe einmal aus- und wieder einschalten, im Hauptbildschirm die gewünschte Ziel-App und Mapping aktivieren, Diagnose-Overlay einschalten, ins Spiel wechseln. Falls `Ziel erkannt: NEIN`, Paketnamen vergleichen; falls `Tasten: 0`, erhält der Service keine KeyEvents. Hinweis: Nur ein AccessibilityService kann systemweit Tastatureingaben filtern.
+- **Nicht geräteseitig getestet.** Dieses Update behebt die Erkennungslogik, garantiert aber nicht, dass jedes Spiel Accessibility-Gesten akzeptiert.
 
 ## Neu in v0.3: Fehlersuche direkt am Gerät
 

@@ -20,6 +20,8 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -72,19 +74,59 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         windowManager = (WindowManager)getSystemService(WINDOW_SERVICE);
         AccessibilityServiceInfo info = getServiceInfo();
         if (info != null) {
-            info.flags |= AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
+            info.flags |= AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
+                | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+            info.eventTypes |= AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                | AccessibilityEvent.TYPE_WINDOWS_CHANGED;
             setServiceInfo(info);
         }
+        refreshForeground(null);
         reconfigure();
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && event.getPackageName() != null) {
-            String next = event.getPackageName().toString();
-            if (!next.equals(foregroundPackage)) {
-                foregroundPackage = next;
-                reconfigure();
+        final int type = event.getEventType();
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            refreshForeground(event);
+        }
+    }
+
+    /**
+     * Detect the focused *application* window, not the overlay or an arbitrary
+     * accessibility event producer. Some games expose window transitions only
+     * as TYPE_WINDOWS_CHANGED. Null means unknown, not "wrong app".
+     */
+    private String foregroundFromWindows() {
+        try {
+            List<AccessibilityWindowInfo> windows = getWindows();
+            if (windows == null) return null;
+            AccessibilityWindowInfo candidate = null;
+            for (AccessibilityWindowInfo window : windows) {
+                if (window.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+                if (window.isFocused()) { candidate = window; break; }
+                if (candidate == null && window.isActive()) candidate = window;
             }
+            if (candidate == null) return null;
+            AccessibilityNodeInfo root = candidate.getRoot();
+            if (root == null || root.getPackageName() == null) return null;
+            String pkg = root.getPackageName().toString();
+            return pkg.isEmpty() ? null : pkg;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void refreshForeground(AccessibilityEvent event) {
+        String next = foregroundFromWindows();
+        if (next == null && event != null
+                && event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                && event.getPackageName() != null) {
+            next = event.getPackageName().toString();
+        }
+        if (next != null && !next.equals(foregroundPackage)) {
+            foregroundPackage = next;
+            reconfigure();
         }
     }
 
@@ -179,7 +221,9 @@ public class MapperService extends AccessibilityService implements SharedPrefere
             }
         } else showCursor();
         if (running) rebuildWanted();
-        if (prefs.getBoolean(SHOW_DIAG, false) && isTargetForeground()) showDiagnostics();
+        // Diagnostics are deliberately visible even when target detection fails.
+        // User can turn the overlay off in the main activity after testing.
+        if (prefs.getBoolean(SHOW_DIAG, false)) showDiagnostics();
         else hideDiagnostics();
         updateDiagnostics();
     }
@@ -192,7 +236,8 @@ public class MapperService extends AccessibilityService implements SharedPrefere
     }
 
     @Override protected boolean onKeyEvent(KeyEvent event) {
-        if (!running || selectionOverlay != null) return false;
+        // A window-change event may have been missed by an immersive game.
+        refreshForeground(null);
         int code = event.getKeyCode();
         boolean mapped = isDirection(code);
         if (!mapped) {
@@ -207,6 +252,8 @@ public class MapperService extends AccessibilityService implements SharedPrefere
             keyCount++;
             updateDiagnostics();
         }
+        // Count but never consume a physical key outside the enabled target app.
+        if (!running || selectionOverlay != null) return false;
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             if (event.getRepeatCount() == 0 && heldKeys.add(code)) rebuildWanted();
         } else if (event.getAction() == KeyEvent.ACTION_UP) {
@@ -451,9 +498,14 @@ public class MapperService extends AccessibilityService implements SharedPrefere
 
     private void updateDiagnostics() {
         if (diagnosticsOverlay == null) return;
-        diagnosticsOverlay.setText("TOUCHBRIDGE · Ziel-App erkannt\n" +
-            "Mapping: " + (running ? "AN" : "AUS") +
-            " | Tasten: " + keyCount +
+        String target = prefs == null ? "" : prefs.getString(MappingStore.TARGET, "");
+        boolean detected = isTargetForeground();
+        diagnosticsOverlay.setText("TOUCHBRIDGE v0.4 · Service aktiv\n" +
+            "Ziel erkannt: " + (detected ? "JA" : "NEIN") +
+            " | Mapping: " + (running ? "AN" : "AUS") + "\n" +
+            "Aktives Paket: " + (foregroundPackage.isEmpty() ? "unbekannt" : foregroundPackage) + "\n" +
+            "Zielpaket: " + (target == null || target.isEmpty() ? "nicht gewählt" : target) + "\n" +
+            "Tasten: " + keyCount +
             " | Gesten: " + gestureCount +
             " | Fehler: " + gestureErrors);
     }

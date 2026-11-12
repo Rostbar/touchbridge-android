@@ -119,14 +119,14 @@ public class MainActivity extends Activity {
         body.addView(mouse);
         body.addView(label("Die Mauserkennung wird nur in deiner Ziel-App abgefangen. Linksklick wird an der Cursorposition simuliert; Rechts-/Mittelklick an festen Punkten. Mausbewegung als 3D-Kamera ist hier noch nicht implementiert.", 12, MUTED, false));
         Switch diagnosis = new Switch(this);
-        diagnosis.setText("Diagnoseanzeige im Spiel (optional)");
+        diagnosis.setText("Diagnoseanzeige auf dem Bildschirm (optional)");
         diagnosis.setTextColor(TEXT);
         diagnosis.setTextSize(16);
         diagnosis.setChecked(MappingStore.prefs(this).getBoolean(MapperService.SHOW_DIAG, false));
         diagnosis.setOnCheckedChangeListener((view, checked) ->
             MappingStore.prefs(this).edit().putBoolean(MapperService.SHOW_DIAG, checked).apply());
         body.addView(diagnosis);
-        body.addView(label("Blendet in der erkannten Ziel-App ein, ob das Mapping aktiv ist und ob Tastendrücke und Touch-Gesten beim Dienst ankommen. Keine Tasteninhalte werden gespeichert.", 12, MUTED, false));
+        body.addView(label("Zeigt vorübergehend in ALLEN Apps: Zielerkennung, Vordergrund-Paket und Eingabe-/Gestenzähler. Damit sind auch Fehler in der Ziel-App-Erkennung sichtbar. Nach dem Test ausschalten. Keine Tasteninhalte werden gespeichert.", 12, MUTED, false));
         separator();
 
         body.addView(label("TEST-UMGEBUNG", 19, TEXT, true));
