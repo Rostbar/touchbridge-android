@@ -120,6 +120,13 @@ public class MainActivity extends Activity {
         body.addView(label("Die Mauserkennung wird nur in deiner Ziel-App abgefangen. Linksklick wird an der Cursorposition simuliert; Rechts-/Mittelklick an festen Punkten. Mausbewegung als 3D-Kamera ist hier noch nicht implementiert.", 12, MUTED, false));
         separator();
 
+        body.addView(label("TEST-UMGEBUNG", 19, TEXT, true));
+        body.addView(label("Überprüfe deine Bluetooth-Tastatur und Maus direkt in einer virtuellen Touch-Fläche – ohne Spiel und ohne aktiviertes Mapping.", 12, MUTED, false));
+        Button test = button("🎮 Touch-Gesten live testen");
+        test.setOnClickListener(v -> startActivity(new Intent(this, TestActivity.class)));
+        body.addView(test);
+        separator();
+
         body.addView(label("TOUCH-BELEGUNG", 19, TEXT, true));
         body.addView(label("Koordinaten sind Bildschirm-Prozente. Tippe auf einen Eintrag zum Bearbeiten oder wähle direkt im Spiel einen Punkt.", 12, MUTED, false));
         for (MappingStore.Binding binding : MappingStore.read(this)) addBinding(binding);

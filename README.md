@@ -1,8 +1,21 @@
 # TouchBridge — Android Keyboard/Mouse → Touch (prototype)
 
-**Version 0.1.0 (source code, not a prebuilt APK).**
+**Version 0.2.0 (source code, not a prebuilt APK).**
 
 TouchBridge maps a connected physical Bluetooth/USB keyboard and (on Android 14+) mouse to synthetic touchscreen gestures in one chosen Android game or app. It is designed for learning and local testing, not to evade anti-cheat rules. The app has **no INTERNET permission** and keeps its configuration only on the device.
+
+## New in v0.2: Test laboratory / Gesten-Testlabor
+
+Open **🎮 Touch-Gesten live testen** from the main screen. The interactive laboratory displays all configured mappings as dots on a scaled touchscreen preview:
+
+- Press **W/A/S/D** to move the visual joystick, including diagonal movement.
+- Press and hold mapped keys, such as **SPACE**, **SHIFT** or **E**, to highlight the associated touch target.
+- Release a key to see a brief fading ring at the last target.
+- Move the mouse to see its cursor. Left-click and drag to visualize a touch path; right/middle-click highlight their configured targets.
+- Touch the test area with a finger to visualize physical screen touches too.
+- The last key/button event and all held mapped inputs are shown above the preview.
+
+**Important:** This is a **visual preview of the mapping**, not a measurement of actual AccessibilityService touch injection and not a virtual hardware gamepad. It does not send system-wide touch gestures from the laboratory. No target app, active mapping or AccessibilityService permission is needed for this test. As with the original mapping engine, in-game support varies by device and game.
 
 ## Features
 
@@ -47,12 +60,13 @@ Build-time Internet access is required for the Gradle plugin and SDK dependencie
 
 1. Pair a Bluetooth mouse and keyboard or connect them through USB OTG.
 2. Install the APK, then open **TouchBridge**.
-3. Enable **TouchBridge Eingabesteuerung** in Android Settings → Accessibility / Bedienungshilfen → Downloaded apps / Installierte Apps.
-4. If sideloaded app accessibility services are restricted, open Android Settings → App Info → TouchBridge → menu → **Allow restricted settings** (wording differs across Android versions; only do this for APKs you trust).
-5. Choose your target game/application in TouchBridge.
-6. Adjust the button positions (touch layout differs among games and screen orientations). “Im Spiel wählen” opens the game and captures the next screen tap.
-7. Enable mapping. On Android 14+ optionally enable “Maus abfangen”.
-8. Switch to the game and test the mapped keyboard keys.
+3. Open **🎮 Touch-Gesten live testen** to verify your physical input and preview your configured buttons. No accessibility permission is needed in this preview.
+4. Enable **TouchBridge Eingabesteuerung** in Android Settings → Accessibility / Bedienungshilfen → Downloaded apps / Installierte Apps.
+5. If sideloaded app accessibility services are restricted, open Android Settings → App Info → TouchBridge → menu → **Allow restricted settings** (wording differs across Android versions; only do this for APKs you trust).
+6. Choose your target game/application in TouchBridge.
+7. Adjust the button positions (touch layout differs among games and screen orientations). “Im Spiel wählen” opens the game and captures the next screen tap.
+8. Enable mapping. On Android 14+ optionally enable “Maus abfangen”.
+9. Switch to the game and test the mapped keyboard keys.
 
 ### Default mappings
 
@@ -72,6 +86,7 @@ Defaults are only examples, not tuned for any particular game. To change each ma
 ## Source layout
 
 - `app/src/main/java/de/touchbridge/app/MainActivity.java` — Settings/UI, app picker, mapping editor
+- `app/src/main/java/de/touchbridge/app/TestActivity.java` — Test lab with visual key/mouse/touch preview, no real gesture injection
 - `app/src/main/java/de/touchbridge/app/MappingStore.java` — Local configuration and defaults
 - `app/src/main/java/de/touchbridge/app/MapperService.java` — Accessibility input capture + touch gesture engine + picker/cursor overlays
 - `.github/workflows/build-apk.yml` — Debug APK build pipeline
@@ -79,3 +94,7 @@ Defaults are only examples, not tuned for any particular game. To change each ma
 ## Privacy
 
 TouchBridge does not read text fields, send data over the network, take screenshots, record key histories, or request contacts/storage/location. Android's accessibility permission is still powerful, so always review the source and turn off the service when you are finished.
+
+## Installing an updated debug APK
+
+An Android debug APK built on an ephemeral GitHub Actions runner may get a different debug signing key than a previous build. If Android says an existing installed APK is incompatible with an update, uninstall the old TouchBridge and install the new build. **Uninstalling deletes app data and custom mapping preferences.** For upgrades that preserve app data, configure a persistent signing keystore in GitHub Actions. Never commit release signing secrets to source control.
