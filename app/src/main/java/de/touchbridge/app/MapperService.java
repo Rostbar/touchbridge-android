@@ -37,7 +37,13 @@ import java.util.Set;
  * No clipboard, screenshots, recording, storage of individual presses, or network access.
  */
 public class MapperService extends AccessibilityService implements SharedPreferences.OnSharedPreferenceChangeListener {
-    private static final int SEGMENT_MS = 95;
+    // A held finger must survive between successive AccessibilityService gestures.
+    // Short 95 ms chunks produced too many boundaries in games such as Fortnite.
+    private static final int DEFAULT_HOLD_SEGMENT_MS = 260;
+    private static final int MIN_HOLD_SEGMENT_MS = 120;
+    private static final int MAX_HOLD_SEGMENT_MS = 500;
+    private static final int MOVE_SEGMENT_MS = 70; // Move joystick quickly, then hold.
+    public static final String HOLD_SEGMENT_MS = "touchbridge_hold_segment_ms";
     private static final int TAP_MS = 65;
     public static final String TAP_MODE = "touchbridge_tap_mode";
     public static final String DIAG_NONCE = "touchbridge_test_nonce";
@@ -66,6 +72,8 @@ public class MapperService extends AccessibilityService implements SharedPrefere
     private View cursorOverlay;
     private TextView diagnosticsOverlay;
     private int keyCount = 0;
+    private int keyUpCount = 0;
+    private int joystickStartCount = 0;
     private int gestureCount = 0;
     private int gestureErrors = 0;
     private WindowManager.LayoutParams cursorParams;
@@ -263,6 +271,9 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
             keyCount++;
             updateDiagnostics();
+        } else if (event.getAction() == KeyEvent.ACTION_UP) {
+            keyUpCount++;
+            updateDiagnostics();
         }
         // Release an already tracked held key even if the foreground changed while pressed.
         if (event.getAction() == KeyEvent.ACTION_UP && heldKeys.remove(code)) {
@@ -300,6 +311,11 @@ public class MapperService extends AccessibilityService implements SharedPrefere
             || k == KeyEvent.KEYCODE_S || k == KeyEvent.KEYCODE_D;
     }
     private boolean down(int key) { return heldKeys.contains(key); }
+
+    private int holdSegmentMs() {
+        return prefs == null ? DEFAULT_HOLD_SEGMENT_MS : Math.max(MIN_HOLD_SEGMENT_MS,
+            Math.min(MAX_HOLD_SEGMENT_MS, prefs.getInt(HOLD_SEGMENT_MS, DEFAULT_HOLD_SEGMENT_MS)));
+    }
 
     private Point displaySize() {
         Point p = new Point();
@@ -386,11 +402,20 @@ public class MapperService extends AccessibilityService implements SharedPrefere
                 if (Math.abs(start.x - destination.x) > .01f || Math.abs(start.y - destination.y) > .01f)
                     path.lineTo(destination.x, destination.y);
                 GestureDescription.StrokeDescription previous = continued.get(id);
-                int duration = tap ? TAP_MS : SEGMENT_MS;
+                // For a joystick direction change, reach the new position quickly.
+                // For a stable hold, give Android a longer uninterrupted segment.
+                // continueStroke preserves the SAME pointer across segments.
+                boolean movingStick = id.equals(MappingStore.STICK)
+                    && (Math.abs(start.x - destination.x) > .5f
+                        || Math.abs(start.y - destination.y) > .5f);
+                int duration = tap ? TAP_MS : movingStick ? MOVE_SEGMENT_MS : holdSegmentMs();
                 // Tap stroke ends by itself, even if the system never reports KEY_UP.
                 GestureDescription.StrokeDescription stroke = previous == null
                     ? new GestureDescription.StrokeDescription(path, 0, duration, staying)
                     : previous.continueStroke(path, 0, duration, staying);
+                if (id.equals(MappingStore.STICK) && previous == null && staying) {
+                    joystickStartCount++; // If this rises while W is held, the pointer was restarted.
+                }
                 gesture.addStroke(stroke);
                 if (staying) {
                     nextStrokes.put(id, stroke);
@@ -553,13 +578,16 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         if (diagnosticsOverlay == null) return;
         String target = prefs == null ? "" : prefs.getString(MappingStore.TARGET, "");
         boolean detected = isTargetForeground();
-        diagnosticsOverlay.setText("TOUCHBRIDGE v0.5 · Service aktiv\n" +
+        diagnosticsOverlay.setText("TOUCHBRIDGE v0.6 · Service aktiv\n" +
             "Ziel erkannt: " + (detected ? "JA" : "NEIN") +
             " | Mapping: " + (running ? "AN" : "AUS") +
             " | " + (prefs.getBoolean(TAP_MODE, false) ? "TAP" : "HALTEN") + "\n" +
+            "Joystick: " + (wanted.containsKey(MappingStore.STICK) ? "GEDRUECKT" : "FREI") +
+            " | Segment: " + holdSegmentMs() + " ms" +
+            " | Starts: " + joystickStartCount + "\n" +
             "Aktives Paket: " + (foregroundPackage.isEmpty() ? "unbekannt" : foregroundPackage) + "\n" +
             "Zielpaket: " + (target == null || target.isEmpty() ? "nicht gewählt" : target) + "\n" +
-            "Tasten: " + keyCount +
+            "Tasten DOWN/UP: " + keyCount + "/" + keyUpCount +
             " | Gesten: " + gestureCount +
             " | Fehler: " + gestureErrors);
     }

@@ -18,6 +18,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -72,7 +73,7 @@ public class MainActivity extends Activity {
         scroller.addView(body);
         setContentView(scroller);
 
-        body.addView(label("TOUCHBRIDGE", 27, TEXT, true));
+        body.addView(label("TOUCHBRIDGE  v0.6.0", 27, TEXT, true));
         body.addView(label("Bluetooth-/USB-Maus und Tastatur → Touch-Gesten", 14, MUTED, false));
         body.addView(label("PROTOTYP · kein echter virtueller Gamepad-Treiber", 12, Color.rgb(255, 194, 112), true));
         separator();
@@ -131,6 +132,33 @@ public class MainActivity extends Activity {
             "Automatische Tastatur-Wiederholungen werden ignoriert. WASD-Joystick und Maus bleiben im Halten-Modus.",
             12, MUTED, false));
 
+        // Fortnite-style virtual joystick: tune the duration of each continued hold.
+        // Longer segments reduce dispatch boundaries; shorter ones react faster to WASD changes.
+        final int minHold = 120;
+        final int maxHold = 500;
+        int currentHold = Math.max(minHold, Math.min(maxHold,
+            MappingStore.prefs(this).getInt(MapperService.HOLD_SEGMENT_MS, 260)));
+        TextView holdLabel = label("Joystick-Stabilität: " + currentHold + " ms", 15, TEXT, true);
+        body.addView(holdLabel);
+        SeekBar holdSeek = new SeekBar(this);
+        holdSeek.setMax(maxHold - minHold);
+        holdSeek.setProgress(currentHold - minHold);
+        holdSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                int value = minHold + progress;
+                holdLabel.setText("Joystick-Stabilität: " + value + " ms");
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) {
+                MappingStore.prefs(MainActivity.this).edit()
+                    .putInt(MapperService.HOLD_SEGMENT_MS, minHold + bar.getProgress()).apply();
+            }
+        });
+        body.addView(holdSeek);
+        body.addView(label("Kürzer = schnellere Richtungswechsel; länger = weniger Touch-Unterbrechungen. " +
+            "Starte mit 260 ms, teste bei Ruckeln 350-450 ms. Bei träger Steuerung 160-220 ms.",
+            12, MUTED, false));
+
         body.addView(label("Die Mauserkennung wird nur in deiner Ziel-App abgefangen. Linksklick wird an der Cursorposition simuliert; Rechts-/Mittelklick an festen Punkten. Mausbewegung als 3D-Kamera ist hier noch nicht implementiert.", 12, MUTED, false));
         Switch diagnosis = new Switch(this);
         diagnosis.setText("Diagnoseanzeige auf dem Bildschirm (optional)");
@@ -170,7 +198,7 @@ public class MainActivity extends Activity {
         body.addView(reset);
         separator();
         body.addView(label("Hinweise", 16, TEXT, true));
-        body.addView(label("• WASD simuliert einen kontinuierlichen virtuellen Joystick. Andere Tasten halten Touch, außer wenn der neue Tap-Modus aktiv ist.\n• Keine Internet-Berechtigung, keine Protokollierung von Tastendrücken.\n• Manche Spiele ignorieren simulierte Gesten oder verbieten Mapping-Tools.\n• Falls Android die Bedienungshilfe blockiert: App-Info → Drei-Punkte-Menü → Eingeschränkte Einstellungen zulassen (nur wenn du dem eigenen APK vertraust).\n• Bei Problemen Mapping jederzeit deaktivieren.", 13, MUTED, false));
+        body.addView(label("• WASD nutzt fortgesetzte Touch-Gesten (mit einstellbarer Halteabschnitt-Laenge). Andere Tasten halten Touch, außer wenn der neue Tap-Modus aktiv ist.\n• Keine Internet-Berechtigung, keine Protokollierung von Tastendrücken.\n• Manche Spiele ignorieren simulierte Gesten oder verbieten Mapping-Tools.\n• Falls Android die Bedienungshilfe blockiert: App-Info → Drei-Punkte-Menü → Eingeschränkte Einstellungen zulassen (nur wenn du dem eigenen APK vertraust).\n• Bei Problemen Mapping jederzeit deaktivieren.", 13, MUTED, false));
     }
 
     private void addBinding(MappingStore.Binding b) {

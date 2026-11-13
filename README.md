@@ -1,3 +1,19 @@
+# TouchBridge v0.6 – Fortnite Joystick-Stabilisierung
+
+Beim Halten von WASD wurde der virtuelle Joystick in v0.5 alle 95 ms durch eine neue `dispatchGesture`-Etappe fortgeführt. In manchen Spielen entstand dadurch ein merkbares Unterbrechen/erneutes Heranziehen des Sticks.
+
+**Änderungen**
+- Joystick-Richtungswechsel werden über eine kurze 70-ms-Etappe erreicht, anschließend läuft der Halteabschnitt länger (standardmäßig 260 ms), um die Anzahl der Übergänge zu reduzieren.
+- Die App nutzt weiterhin `StrokeDescription.continueStroke(...)`, damit Android den virtuellen Finger zwischen Etappen grundsätzlich gedrückt halten kann.
+- Im Hauptmenü gibt es einen Regler **Joystick-Stabilität (120–500 ms)**: länger reduziert Etappenwechsel, kann aber Richtungswechsel und Loslassen verzögern. 260 ms ist der Startwert, bei Ruckeln 350–450 ms testen, bei Trägheit 160–220 ms.
+- Diagnose zeigt **Joystick-Starts** sowie Tastendrücke **DOWN/UP**. Wenn "Starts" während eines ununterbrochen gehaltenen W steigt, wurde die Geste abgebrochen und musste neu beginnen. Steigt UP obwohl du W weiter hältst, meldet das System ein unerwartetes Loslassen.
+
+**Einschränkungen:** Diese Änderung reduziert die Häufigkeit kurzer Gesten, garantiert aber kein vollständig nahtloses Verhalten in Fortnite. Android kann Accessibility-Gesten jederzeit abbrechen und manche Spiele behandeln die künstliche Berührung anders als echte Finger-/Controller-Eingaben. Für einen stabilen nativen Gamepad-Input braucht man andere Systemrechte beziehungsweise einen echten Controller. Der v0.6-Code wurde strukturell geprüft, aber nicht auf dem Gerät gebaut oder getestet.
+
+**Termux-Update**: Patch-ZIP nach `~/storage/downloads/` herunterladen, im Repository `unzip -o ~/storage/downloads/TouchBridge_JoystickFix_Patch_v0.6.zip`, dann `git add app README.md && git commit -m "Smooth joystick v0.6" && git push origin main`. Der Push startet den GitHub-Actions-Build automatisch.
+
+---
+
 # TouchBridge v0.5 – Geometry Dash Tap-Fix
 
 **Neu: Kurze Taps statt Halten.** Aktiviere in TouchBridge den Schalter **„Kurze Taps statt Halten (z. B. Geometry Dash)“**. Jeder physische Tastendruck (z. B. SPACE) erzeugt dann einen einzigen **65-ms-Touch**, der **automatisch endet**, selbst wenn Android kein KEY_UP meldet. Die automatischen Wiederholungen beim Halten der Taste werden nicht als weitere Taps verarbeitet. WASD-Joystick und Maus bleiben weiterhin im bisherigen kontinuierlichen Modus.
@@ -12,7 +28,7 @@
 
 # TouchBridge — Android Keyboard/Mouse → Touch (prototype)
 
-**Version 0.4.0 (source code, not a prebuilt APK).**
+**Version 0.6.0 (source code, not a prebuilt APK).**
 
 TouchBridge maps a connected physical Bluetooth/USB keyboard and (on Android 14+) mouse to synthetic touchscreen gestures in one chosen Android game or app. It is designed for learning and local testing, not to evade anti-cheat rules. The app has **no INTERNET permission** and keeps its configuration only on the device.
 
