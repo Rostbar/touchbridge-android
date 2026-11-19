@@ -42,7 +42,7 @@ TouchBridge maps a connected physical Bluetooth/USB keyboard and (on Android 14+
 
 ## Neu in v0.3: Fehlersuche direkt am Gerät
 
-- **🧪 Echte Android-Touch-Geste testen**: prüft durch einen echten `AccessibilityService.dispatchGesture()`-Aufruf, ob Android einen generierten Touch in der App ausliefert. Der Test funktioniert ohne Zielspiel und erfordert einen aktivierten Bedienungshilfedienst. Tippe auf **Echten Touch auslösen**, nicht auf die Zielscheibe. Erfolgreich ist der Test nur, wenn **„Geste an Android gesendet“** erscheint UND der Touch-Zähler steigt. Die bloße Erfolgsmeldung des API-Callbacks beweist noch nicht, dass das Ziel den Touch erhalten hat.
+- **Echte Android-Touch-Geste testen**: prüft durch einen echten `AccessibilityService.dispatchGesture()`-Aufruf, ob Android einen generierten Touch in der App ausliefert. Der Test funktioniert ohne Zielspiel und erfordert einen aktivierten Bedienungshilfedienst. Tippe auf **Echten Touch auslösen**, nicht auf die Zielscheibe. Erfolgreich ist der Test nur, wenn **„Geste an Android gesendet“** erscheint UND der Touch-Zähler steigt. Die bloße Erfolgsmeldung des API-Callbacks beweist noch nicht, dass das Ziel den Touch erhalten hat.
 - **Diagnoseanzeige im Spiel (optional)**: blendet in der gewählten Ziel-App Status (`Mapping AN/AUS`, Anzahl erkannter Mappings-Tastendrücke, abgeschlossene und abgebrochene Gesten) über das Bild. Nur Zähler, keine aufgezeichneten Tasten.
 - Der Diagnosebildschirm funktioniert bewusst unabhängig vom Ziel-App-Filter. Die Spielfunktion bleibt weiterhin auf die gewählte App begrenzt.
 
@@ -50,7 +50,7 @@ TouchBridge maps a connected physical Bluetooth/USB keyboard and (on Android 14+
 
 ## New in v0.2: Test laboratory / Gesten-Testlabor
 
-Open **🎮 Touch-Gesten live testen** from the main screen. The interactive laboratory displays all configured mappings as dots on a scaled touchscreen preview:
+Open **Touch-Gesten live testen** from the main screen. The interactive laboratory displays all configured mappings as dots on a scaled touchscreen preview:
 
 - Press **W/A/S/D** to move the visual joystick, including diagonal movement.
 - Press and hold mapped keys, such as **SPACE**, **SHIFT** or **E**, to highlight the associated touch target.
@@ -104,7 +104,7 @@ Build-time Internet access is required for the Gradle plugin and SDK dependencie
 
 1. Pair a Bluetooth mouse and keyboard or connect them through USB OTG.
 2. Install the APK, then open **TouchBridge**.
-3. Open **🎮 Touch-Gesten live testen** to verify your physical input and preview your configured buttons. No accessibility permission is needed in this preview.
+3. Open **Touch-Gesten live testen** to verify your physical input and preview your configured buttons. No accessibility permission is needed in this preview.
 4. Enable **TouchBridge Eingabesteuerung** in Android Settings → Accessibility / Bedienungshilfen → Downloaded apps / Installierte Apps.
 5. If sideloaded app accessibility services are restricted, open Android Settings → App Info → TouchBridge → menu → **Allow restricted settings** (wording differs across Android versions; only do this for APKs you trust).
 6. Choose your target game/application in TouchBridge.
