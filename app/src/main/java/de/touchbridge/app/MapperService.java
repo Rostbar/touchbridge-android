@@ -39,12 +39,14 @@ import java.util.Set;
 public class MapperService extends AccessibilityService implements SharedPreferences.OnSharedPreferenceChangeListener {
     // A held finger must survive between successive AccessibilityService gestures.
     // Short 95 ms chunks produced too many boundaries in games such as Fortnite.
-    private static final int DEFAULT_HOLD_SEGMENT_MS = 260;
-    private static final int MIN_HOLD_SEGMENT_MS = 120;
-    private static final int MAX_HOLD_SEGMENT_MS = 500;
-    private static final int MOVE_SEGMENT_MS = 70; // Move joystick quickly, then hold.
-    public static final String HOLD_SEGMENT_MS = "touchbridge_hold_segment_ms";
+    private static final int DEFAULT_HOLD_SEGMENT_MS = 95;
+    private static final int MIN_HOLD_SEGMENT_MS = 60;
+    private static final int MAX_HOLD_SEGMENT_MS = 180;
+    private static final int MOVE_SEGMENT_MS = 28; // Fast follow-up for direction changes.
+    private static final int RELEASE_SEGMENT_MS = 8; // Do not hold released keys for a full frame.
+    public static final String HOLD_SEGMENT_MS = "touchbridge_hold_segment_ms_v7";
     private static final int TAP_MS = 65;
+    public static final String RESET_NONCE = "touchbridge_reset_nonce";
     public static final String TAP_MODE = "touchbridge_tap_mode";
     public static final String DIAG_NONCE = "touchbridge_test_nonce";
     public static final String DIAG_X = "touchbridge_test_x";
@@ -64,6 +66,8 @@ public class MapperService extends AccessibilityService implements SharedPrefere
     private Map<String, GestureDescription.StrokeDescription> continued = new HashMap<>();
     private Map<String, PointF> lastPositions = new HashMap<>();
     private boolean busy = false;
+    private boolean frameScheduled = false;
+    private final Runnable frameRunnable = () -> { frameScheduled = false; sendFrame(); };
     private boolean running = false;
     private boolean lastTapMode = false;
     private int hookedMouseSources = -1;
@@ -149,6 +153,7 @@ public class MapperService extends AccessibilityService implements SharedPrefere
     @Override public void onDestroy() {
         if (prefs != null) prefs.unregisterOnSharedPreferenceChangeListener(this);
         connected = false;
+        stopTouches();
         hideSelection(); hideCursor(); hideDiagnostics();
         handler.removeCallbacksAndMessages(null);
         super.onDestroy();
@@ -157,6 +162,8 @@ public class MapperService extends AccessibilityService implements SharedPrefere
     @Override public void onSharedPreferenceChanged(SharedPreferences p, String key) {
         if (DIAG_NONCE.equals(key)) {
             handler.post(this::sendDiagnosticTap);
+        } else if (RESET_NONCE.equals(key)) {
+            handler.post(this::stopTouches);
         } else if (!DIAG_RESULT.equals(key) && !DIAG_X.equals(key) && !DIAG_Y.equals(key)) {
             handler.post(this::reconfigure);
         }
@@ -259,7 +266,7 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         // A window-change event may have been missed by an immersive game.
         refreshForeground(null);
         int code = event.getKeyCode();
-        boolean mapped = isDirection(code);
+        boolean mapped = isDirection(code) || heldKeys.contains(code);
         if (!mapped) {
             for (MappingStore.Binding binding : MappingStore.read(this)) {
                 if (MappingStore.keyCode(binding.key) == code && code != KeyEvent.KEYCODE_UNKNOWN) {
@@ -281,10 +288,11 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         }
         // Count but never consume a physical key outside the enabled target app.
         if (!running || selectionOverlay != null) return false;
-        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
             if (prefs.getBoolean(TAP_MODE, false) && !isDirection(code)) {
-                enqueueShortTap(code);
+                if (event.getRepeatCount() == 0) enqueueShortTap(code);
             } else if (heldKeys.add(code)) {
+                // Also accept a repeat-down if the first down was not delivered.
                 rebuildWanted();
             }
         }
@@ -355,109 +363,115 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         scheduleFrame();
     }
 
+    /**
+     * One in-flight gesture at a time. Calling dispatchGesture while one is in
+     * progress cancels the current fingers, so new keys wait until the callback.
+     * With short segments, the worst-case input/release latency is bounded by
+     * the segment duration (not the previous 260-500 ms).
+     */
     private void scheduleFrame() {
-        if (!busy) handler.post(this::sendFrame);
+        if (busy || frameScheduled) return;
+        frameScheduled = true;
+        handler.post(frameRunnable);
     }
 
     private void sendFrame() {
-        if (busy || (continued.isEmpty() && wanted.isEmpty() && oneShotTouches.isEmpty())) return;
-        // dispatchGesture allows at most 10 simultaneous pointer paths on normal devices.
-        List<String> ids = new ArrayList<>(wanted.keySet());
-        ids.sort(String::compareTo);
-        Map<String, PointF> snapshot = new HashMap<>();
-        for (String id : ids) {
-            if (snapshot.size() < GestureDescription.getMaxStrokeCount())
-                snapshot.put(id, wanted.get(id));
-        }
-        // Snapshot only the taps that fit; they are removed after dispatch is accepted.
-        Map<String, PointF> tapSnapshot = new HashMap<>();
-        int available = GestureDescription.getMaxStrokeCount() - snapshot.size();
-        for (String id : new ArrayList<>(oneShotTouches.keySet())) {
-            if (available <= 0) break;
-            tapSnapshot.put(id, oneShotTouches.get(id));
-            available--;
-        }
-        GestureDescription.Builder gesture = new GestureDescription.Builder();
+        if (busy) return;
+        if (continued.isEmpty() && wanted.isEmpty() && oneShotTouches.isEmpty()) return;
+
+        // Release, continue and press all fingers in ONE gesture frame.
+        // Previously, long segments caused released keys to remain down and
+        // newly pressed keys to wait hundreds of milliseconds.
+        List<GestureFramePlanner.Step> steps = GestureFramePlanner.plan(
+            continued.keySet(), wanted.keySet(), oneShotTouches.keySet(),
+            GestureDescription.getMaxStrokeCount());
+        if (steps.isEmpty()) return;
+
+        GestureDescription.Builder builder = new GestureDescription.Builder();
         Map<String, GestureDescription.StrokeDescription> nextStrokes = new HashMap<>();
         Map<String, PointF> nextPositions = new HashMap<>();
-        Set<String> keys = new HashSet<>(continued.keySet());
-        keys.addAll(snapshot.keySet());
-        keys.addAll(tapSnapshot.keySet());
+        Set<String> dispatchedTaps = new HashSet<>();
         try {
-            for (String id : keys) {
-                boolean tap = tapSnapshot.containsKey(id);
-                boolean staying = snapshot.containsKey(id);
-                PointF oldPosition = lastPositions.get(id);
-                PointF destination = tap ? tapSnapshot.get(id)
-                    : staying ? snapshot.get(id) : oldPosition;
+            for (GestureFramePlanner.Step step : steps) {
+                String id = step.id;
+                boolean release = step.kind == GestureFramePlanner.Kind.RELEASE;
+                boolean tap = step.kind == GestureFramePlanner.Kind.TAP;
+                boolean staying = !release && !tap;
+
+                PointF old = lastPositions.get(id);
+                PointF destination = tap ? oneShotTouches.get(id)
+                    : release ? old : wanted.get(id);
                 if (destination == null) continue;
-                Path path = new Path();
-                PointF start = oldPosition != null ? oldPosition : destination;
-                if (id.equals(MappingStore.STICK) && oldPosition == null) {
-                    MappingStore.Binding stick = MappingStore.find(this, MappingStore.STICK);
-                    Point screen = displaySize();
-                    if (stick != null) start = new PointF(stick.x * screen.x, stick.y * screen.y);
+                PointF start = old == null ? destination : old;
+                if (id.equals(MappingStore.STICK) && old == null && staying) {
+                    MappingStore.Binding binding = MappingStore.find(this, MappingStore.STICK);
+                    if (binding != null) {
+                        Point screen = displaySize();
+                        start = new PointF(binding.x * screen.x, binding.y * screen.y);
+                    }
                 }
+
+                Path path = new Path();
                 path.moveTo(start.x, start.y);
-                if (Math.abs(start.x - destination.x) > .01f || Math.abs(start.y - destination.y) > .01f)
-                    path.lineTo(destination.x, destination.y);
+                boolean moving = Math.abs(start.x - destination.x) > .5f
+                    || Math.abs(start.y - destination.y) > .5f;
+                if (moving) path.lineTo(destination.x, destination.y);
+
+                // Releasing a key ends in 8 ms, even when other fingers hold.
+                // Directions update quickly, while stationary touches continue
+                // for a short, configurable period (default 95 ms).
+                int duration = release ? RELEASE_SEGMENT_MS : tap ? TAP_MS
+                    : moving ? MOVE_SEGMENT_MS : holdSegmentMs();
                 GestureDescription.StrokeDescription previous = continued.get(id);
-                // For a joystick direction change, reach the new position quickly.
-                // For a stable hold, give Android a longer uninterrupted segment.
-                // continueStroke preserves the SAME pointer across segments.
-                boolean movingStick = id.equals(MappingStore.STICK)
-                    && (Math.abs(start.x - destination.x) > .5f
-                        || Math.abs(start.y - destination.y) > .5f);
-                int duration = tap ? TAP_MS : movingStick ? MOVE_SEGMENT_MS : holdSegmentMs();
-                // Tap stroke ends by itself, even if the system never reports KEY_UP.
                 GestureDescription.StrokeDescription stroke = previous == null
                     ? new GestureDescription.StrokeDescription(path, 0, duration, staying)
                     : previous.continueStroke(path, 0, duration, staying);
-                if (id.equals(MappingStore.STICK) && previous == null && staying) {
-                    joystickStartCount++; // If this rises while W is held, the pointer was restarted.
-                }
-                gesture.addStroke(stroke);
+                builder.addStroke(stroke);
+                if (tap) dispatchedTaps.add(id);
                 if (staying) {
                     nextStrokes.put(id, stroke);
                     nextPositions.put(id, new PointF(destination.x, destination.y));
                 }
+                if (id.equals(MappingStore.STICK) && previous == null && staying)
+                    joystickStartCount++;
             }
-            if (keys.isEmpty()) return;
+
             busy = true;
-            boolean accepted = dispatchGesture(gesture.build(), new GestureResultCallback() {
-                @Override public void onCompleted(GestureDescription g) {
+            boolean accepted = dispatchGesture(builder.build(), new GestureResultCallback() {
+                @Override public void onCompleted(GestureDescription gesture) {
                     gestureCount++;
-                    updateDiagnostics();
                     busy = false;
                     continued = nextStrokes;
                     lastPositions = nextPositions;
-                    if (!continued.isEmpty() || !wanted.isEmpty() || !oneShotTouches.isEmpty())
-                        handler.post(MapperService.this::sendFrame);
-                }
-                @Override public void onCancelled(GestureDescription g) {
-                    gestureErrors++;
                     updateDiagnostics();
+                    if (!continued.isEmpty() || !wanted.isEmpty() || !oneShotTouches.isEmpty())
+                        scheduleFrame();
+                }
+                @Override public void onCancelled(GestureDescription gesture) {
+                    gestureErrors++;
                     busy = false;
-                    continued.clear(); lastPositions.clear();
+                    continued.clear();
+                    lastPositions.clear();
+                    updateDiagnostics();
                     if (!wanted.isEmpty() || !oneShotTouches.isEmpty())
-                        handler.postDelayed(MapperService.this::sendFrame, 70);
+                        handler.postDelayed(MapperService.this::scheduleFrame, 75);
                 }
             }, handler);
             if (accepted) {
-                for (String id : tapSnapshot.keySet()) oneShotTouches.remove(id);
+                for (String tap : dispatchedTaps) oneShotTouches.remove(tap);
             } else {
+                busy = false;
+                continued.clear();
+                lastPositions.clear();
                 gestureErrors++;
                 updateDiagnostics();
-                busy = false;
-                continued.clear(); lastPositions.clear();
-                oneShotTouches.clear();
             }
         } catch (Exception ex) {
+            busy = false;
+            continued.clear();
+            lastPositions.clear();
             gestureErrors++;
             updateDiagnostics();
-            busy = false;
-            continued.clear(); lastPositions.clear();
-            oneShotTouches.clear();
         }
     }
 
@@ -578,7 +592,7 @@ public class MapperService extends AccessibilityService implements SharedPrefere
         if (diagnosticsOverlay == null) return;
         String target = prefs == null ? "" : prefs.getString(MappingStore.TARGET, "");
         boolean detected = isTargetForeground();
-        diagnosticsOverlay.setText("TOUCHBRIDGE v0.6 · Service aktiv\n" +
+        diagnosticsOverlay.setText("TOUCHBRIDGE v0.7 · Service aktiv\n" +
             "Ziel erkannt: " + (detected ? "JA" : "NEIN") +
             " | Mapping: " + (running ? "AN" : "AUS") +
             " | " + (prefs.getBoolean(TAP_MODE, false) ? "TAP" : "HALTEN") + "\n" +
@@ -587,7 +601,7 @@ public class MapperService extends AccessibilityService implements SharedPrefere
             " | Starts: " + joystickStartCount + "\n" +
             "Aktives Paket: " + (foregroundPackage.isEmpty() ? "unbekannt" : foregroundPackage) + "\n" +
             "Zielpaket: " + (target == null || target.isEmpty() ? "nicht gewählt" : target) + "\n" +
-            "Tasten DOWN/UP: " + keyCount + "/" + keyUpCount +
+            "Aktive Tasten: " + heldKeys.size() + " | DOWN/UP: " + keyCount + "/" + keyUpCount +
             " | Gesten: " + gestureCount +
             " | Fehler: " + gestureErrors);
     }

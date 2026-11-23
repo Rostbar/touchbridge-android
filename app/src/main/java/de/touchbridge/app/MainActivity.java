@@ -73,7 +73,7 @@ public class MainActivity extends Activity {
         scroller.addView(body);
         setContentView(scroller);
 
-        body.addView(label("TOUCHBRIDGE  v0.6.0", 27, TEXT, true));
+        body.addView(label("TOUCHBRIDGE  v0.7.0", 27, TEXT, true));
         body.addView(label("Bluetooth-/USB-Maus und Tastatur → Touch-Gesten", 14, MUTED, false));
         body.addView(label("PROTOTYP · kein echter virtueller Gamepad-Treiber", 12, Color.rgb(255, 194, 112), true));
         separator();
@@ -132,12 +132,11 @@ public class MainActivity extends Activity {
             "Automatische Tastatur-Wiederholungen werden ignoriert. WASD-Joystick und Maus bleiben im Halten-Modus.",
             12, MUTED, false));
 
-        // Fortnite-style virtual joystick: tune the duration of each continued hold.
-        // Longer segments reduce dispatch boundaries; shorter ones react faster to WASD changes.
-        final int minHold = 120;
-        final int maxHold = 500;
+        // Short gesture segments keep key release responsive during multi-touch.
+        final int minHold = 60;
+        final int maxHold = 180;
         int currentHold = Math.max(minHold, Math.min(maxHold,
-            MappingStore.prefs(this).getInt(MapperService.HOLD_SEGMENT_MS, 260)));
+            MappingStore.prefs(this).getInt(MapperService.HOLD_SEGMENT_MS, 95)));
         TextView holdLabel = label("Joystick-Stabilität: " + currentHold + " ms", 15, TEXT, true);
         body.addView(holdLabel);
         SeekBar holdSeek = new SeekBar(this);
@@ -155,9 +154,16 @@ public class MainActivity extends Activity {
             }
         });
         body.addView(holdSeek);
-        body.addView(label("Kürzer = schnellere Richtungswechsel; länger = weniger Touch-Unterbrechungen. " +
-            "Starte mit 260 ms, teste bei Ruckeln 350-450 ms. Bei träger Steuerung 160-220 ms.",
-            12, MUTED, false));
+        body.addView(label("Standard: 95 ms. Kürzer = schnelleres Loslassen und Richtungswechsel; " +
+            "länger = weniger Gesten-Übergänge. Starte mit 75–120 ms.", 12, MUTED, false));
+
+        Button emergency = button("Alle simulierten Tasten sofort lösen");
+        emergency.setOnClickListener(v -> {
+            MappingStore.prefs(this).edit()
+                .putLong(MapperService.RESET_NONCE, System.nanoTime()).apply();
+            Toast.makeText(this, "Loslassen angefordert", Toast.LENGTH_SHORT).show();
+        });
+        body.addView(emergency);
 
         body.addView(label("Die Mauserkennung wird nur in deiner Ziel-App abgefangen. Linksklick wird an der Cursorposition simuliert; Rechts-/Mittelklick an festen Punkten. Mausbewegung als 3D-Kamera ist hier noch nicht implementiert.", 12, MUTED, false));
         Switch diagnosis = new Switch(this);

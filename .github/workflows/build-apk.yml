@@ -8,10 +8,8 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-24.04
-
     permissions:
       contents: read
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,7 +30,10 @@ jobs:
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           "$SDKMANAGER" --version
           yes | "$SDKMANAGER" --licenses > /dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Test multi-touch planner
+        run: bash scripts/test-planner.sh
 
       - name: Build APK
         run: gradle :app:assembleDebug --no-daemon --stacktrace
